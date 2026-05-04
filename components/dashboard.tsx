@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useWebSocket } from "@/hooks/use-websocket"
+import { WorkflowReadinessPanel } from "@/components/workflow-readiness-panel"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -313,6 +314,8 @@ export function Dashboard() {
             </Button>
           </div>
         </Card>
+
+        <WorkflowReadinessPanel />
 
         {/* Sally Remote Controls */}
         <Card className="border-border/50 bg-card/50 backdrop-blur p-3">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useWebSocket } from "@/hooks/use-websocket"
+import { AccountSetupPanel } from "@/components/account-setup-panel"
 import { WorkflowReadinessPanel } from "@/components/workflow-readiness-panel"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -314,6 +315,8 @@ export function Dashboard() {
             </Button>
           </div>
         </Card>
+
+        <AccountSetupPanel />
 
         <WorkflowReadinessPanel />
 

@@ -71,8 +71,9 @@ const HID_DECK_B_KEYBOARDS = parsePathList(process.env.DJ_SALLY_HID_DECK_B_KEYBO
 ])
 const HID_BUTTON_MAP = parseButtonMap(process.env.DJ_SALLY_HID_BUTTON_MAP)
 const HID_KNOB_TARGET = process.env.DJ_SALLY_HID_KNOB_TARGET || "volume"
-const HID_VOLUME_STEP = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_STEP, 2, 1, 20)
-const HID_VOLUME_SEND_DEBOUNCE_MS = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_SEND_DEBOUNCE_MS, 150, 0, 2000)
+const HID_VOLUME_STEP = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_STEP, 7, 1, 20)
+const HID_VOLUME_SEND_DEBOUNCE_MS = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_SEND_DEBOUNCE_MS, 75, 0, 2000)
+const HID_VOLUME_WAIT_MS = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_WAIT_MS, 1000, 1000, 60000)
 const HID_VOLUME_DIRECTION = process.env.DJ_SALLY_HID_VOLUME_INVERT === "1" ? -1 : 1
 const INPUT_EVENT_SIZE = 24
 const EV_KEY = 1
@@ -467,7 +468,7 @@ function scheduleHidVolumeSend(percent: number) {
 
   hidVolumeSendTimer = setTimeout(() => {
     hidVolumeSendTimer = null
-    void sendToSally({ type: "set_volume", percent })
+    void sendToSally({ type: "set_volume", percent }, { skipProxy: true, waitMs: HID_VOLUME_WAIT_MS })
   }, HID_VOLUME_SEND_DEBOUNCE_MS)
   hidVolumeSendTimer.unref()
 }
@@ -624,9 +625,13 @@ function broadcastState() {
 }
 
 type SallyPayload = Record<string, unknown>
+interface SendToSallyOptions {
+  skipProxy?: boolean
+  waitMs?: number
+}
 
 // Send command to Sally remote control API
-async function sendToSally(command: SallyPayload): Promise<SallyPayload | null> {
+async function sendToSally(command: SallyPayload, options: SendToSallyOptions = {}): Promise<SallyPayload | null> {
   if (!SALLY_ADMIN_TOKEN) {
     console.log("[Bridge] SALLY_ADMIN_TOKEN not set, skipping Sally command:", command)
     void rememberDjSallyCommand(command, { ok: false, skipped: true, reason: "missing_sally_admin_token" })
@@ -634,15 +639,17 @@ async function sendToSally(command: SallyPayload): Promise<SallyPayload | null> 
   }
 
   const abortController = new AbortController()
-  const timeout = setTimeout(() => abortController.abort(), SALLY_WAIT_MS + 10000)
+  const waitMs = options.waitMs ?? SALLY_WAIT_MS
+  const useProxy = Boolean(SALLY_COMMAND_PROXY_URL && !options.skipProxy)
+  const timeout = setTimeout(() => abortController.abort(), waitMs + 10000)
   timeout.unref()
 
   try {
-    const response = await fetch(SALLY_COMMAND_PROXY_URL || sallyCommandUrl(), {
+    const response = await fetch(useProxy ? SALLY_COMMAND_PROXY_URL! : sallyCommandUrl(waitMs), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(SALLY_COMMAND_PROXY_URL ? {} : { Authorization: `Bearer ${SALLY_ADMIN_TOKEN}` }),
+        ...(useProxy ? {} : { Authorization: `Bearer ${SALLY_ADMIN_TOKEN}` }),
       },
       body: JSON.stringify(command),
       signal: abortController.signal,
@@ -754,9 +761,9 @@ function extractSpeechProvider(value: unknown): string | null {
   return null
 }
 
-function sallyCommandUrl() {
+function sallyCommandUrl(waitMs = SALLY_WAIT_MS) {
   const base = SALLY_REMOTE_CONTROL_URL.replace(/\/$/, "")
-  return `${base}/devices/${encodeURIComponent(SALLY_DEVICE_ID)}/command?wait_ms=${SALLY_WAIT_MS}`
+  return `${base}/devices/${encodeURIComponent(SALLY_DEVICE_ID)}/command?wait_ms=${waitMs}`
 }
 
 function sallyStatusUrl() {

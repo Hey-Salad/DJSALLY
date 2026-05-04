@@ -105,8 +105,17 @@ const initialState: DeviceState = {
   },
 }
 
-// Default WebSocket URL from environment or fallback
-const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_DJ_SALLY_WS_URL || "ws://localhost:8080"
+// Public deployments should not probe localhost automatically; browsers may
+// treat that as a local-network access request and block the page.
+const DEFAULT_WS_URL = process.env.NEXT_PUBLIC_DJ_SALLY_WS_URL || ""
+const LOCAL_FALLBACK_WS_URL = "ws://localhost:8080"
+
+function isLocalDashboardHost() {
+  if (typeof window === "undefined") return false
+
+  const hostname = window.location.hostname
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".local")
+}
 
 interface UseWebSocketReturn {
   status: ConnectionStatus
@@ -135,7 +144,12 @@ export function useWebSocket(): UseWebSocketReturn {
   }, [])
 
   const connect = useCallback((url?: string) => {
-    const wsUrl = url || DEFAULT_WS_URL
+    const wsUrl = url || DEFAULT_WS_URL || (isLocalDashboardHost() ? LOCAL_FALLBACK_WS_URL : "")
+
+    if (!wsUrl) {
+      setStatus("disconnected")
+      return
+    }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.close()

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import { createReadStream, existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { WebSocketServer, WebSocket } from "ws"
+import { resolveDjSallyHidDecks } from "../lib/hid-device-mapping"
 
 loadEnvFiles()
 
@@ -18,22 +19,48 @@ const MUBIT_REMEMBER_SCRIPT =
   process.env.MUBIT_REMEMBER_SCRIPT || `${process.env.HOME || "/home/hs-chilu"}/heysalad-agent-integrations/scripts/mubit-remember.mjs`
 const MUBIT_NODE = process.env.MUBIT_NODE || "/usr/bin/node"
 const HID_ENABLED = process.env.DJ_SALLY_HID_ENABLED !== "0"
+const HID_AUTO_MAPPING = resolveDjSallyHidDecks({
+  vendorId: process.env.DJ_SALLY_HID_VENDOR_ID,
+  productId: process.env.DJ_SALLY_HID_PRODUCT_ID,
+  deckAUsbDevice: process.env.DJ_SALLY_HID_DECK_A_USB_DEVICE,
+  deckBUsbDevice: process.env.DJ_SALLY_HID_DECK_B_USB_DEVICE,
+})
+const HID_DECK_A_AUTO = HID_AUTO_MAPPING.decks.find((deck) => deck.pad === 1)
+const HID_DECK_B_AUTO = HID_AUTO_MAPPING.decks.find((deck) => deck.pad === 2)
 const HID_DECK_A_KEYBOARD =
-  process.env.DJ_SALLY_HID_DECK_A_KEYBOARD || "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.2-event-kbd"
+  process.env.DJ_SALLY_HID_DECK_A_KEYBOARD ||
+  HID_DECK_A_AUTO?.keyboardPaths[1] ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.2-event-kbd"
 const HID_DECK_A_KEYBOARD_PRIMARY =
-  process.env.DJ_SALLY_HID_DECK_A_KEYBOARD_PRIMARY || "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.0-event-kbd"
+  process.env.DJ_SALLY_HID_DECK_A_KEYBOARD_PRIMARY ||
+  HID_DECK_A_AUTO?.keyboardPaths[0] ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.0-event-kbd"
 const HID_DECK_A_ENCODER =
-  process.env.DJ_SALLY_HID_DECK_A_ENCODER || "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.3-event-mouse"
+  process.env.DJ_SALLY_HID_DECK_A_ENCODER ||
+  HID_DECK_A_AUTO?.encoderPath ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:2:1.3-event-mouse"
 const HID_DECK_B_KEYBOARD =
-  process.env.DJ_SALLY_HID_DECK_B_KEYBOARD || "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.2-event-kbd"
+  process.env.DJ_SALLY_HID_DECK_B_KEYBOARD ||
+  HID_DECK_B_AUTO?.keyboardPaths[1] ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.2-event-kbd"
 const HID_DECK_B_KEYBOARD_PRIMARY =
-  process.env.DJ_SALLY_HID_DECK_B_KEYBOARD_PRIMARY || "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.0-event-kbd"
+  process.env.DJ_SALLY_HID_DECK_B_KEYBOARD_PRIMARY ||
+  HID_DECK_B_AUTO?.keyboardPaths[0] ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.0-event-kbd"
 const HID_DECK_B_ENCODER =
-  process.env.DJ_SALLY_HID_DECK_B_ENCODER || "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.3-event-mouse"
-const HID_DECK_A_RAW = process.env.DJ_SALLY_HID_DECK_A_RAW || "/dev/hidraw1"
-const HID_DECK_B_RAW = process.env.DJ_SALLY_HID_DECK_B_RAW || "/dev/hidraw4"
-const HID_DECK_A_RAWS = parsePathList(process.env.DJ_SALLY_HID_DECK_A_RAWS, [HID_DECK_A_RAW, "/dev/hidraw2", "/dev/hidraw3"])
-const HID_DECK_B_RAWS = parsePathList(process.env.DJ_SALLY_HID_DECK_B_RAWS, [HID_DECK_B_RAW, "/dev/hidraw5", "/dev/hidraw6"])
+  process.env.DJ_SALLY_HID_DECK_B_ENCODER ||
+  HID_DECK_B_AUTO?.encoderPath ||
+  "/dev/input/by-path/pci-0000:00:14.0-usb-0:3:1.3-event-mouse"
+const HID_DECK_A_RAW = process.env.DJ_SALLY_HID_DECK_A_RAW || HID_DECK_A_AUTO?.rawPaths[0] || "/dev/hidraw4"
+const HID_DECK_B_RAW = process.env.DJ_SALLY_HID_DECK_B_RAW || HID_DECK_B_AUTO?.rawPaths[0] || "/dev/hidraw1"
+const HID_DECK_A_RAWS = parsePathList(
+  process.env.DJ_SALLY_HID_DECK_A_RAWS,
+  HID_DECK_A_AUTO?.rawPaths?.length ? HID_DECK_A_AUTO.rawPaths : [HID_DECK_A_RAW, "/dev/hidraw5", "/dev/hidraw6"]
+)
+const HID_DECK_B_RAWS = parsePathList(
+  process.env.DJ_SALLY_HID_DECK_B_RAWS,
+  HID_DECK_B_AUTO?.rawPaths?.length ? HID_DECK_B_AUTO.rawPaths : [HID_DECK_B_RAW, "/dev/hidraw2", "/dev/hidraw3"]
+)
 const HID_DECK_A_KEYBOARDS = parsePathList(process.env.DJ_SALLY_HID_DECK_A_KEYBOARDS, [
   HID_DECK_A_KEYBOARD_PRIMARY,
   HID_DECK_A_KEYBOARD,
@@ -43,6 +70,10 @@ const HID_DECK_B_KEYBOARDS = parsePathList(process.env.DJ_SALLY_HID_DECK_B_KEYBO
   HID_DECK_B_KEYBOARD,
 ])
 const HID_BUTTON_MAP = parseButtonMap(process.env.DJ_SALLY_HID_BUTTON_MAP)
+const HID_KNOB_TARGET = process.env.DJ_SALLY_HID_KNOB_TARGET || "volume"
+const HID_VOLUME_STEP = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_STEP, 2, 1, 20)
+const HID_VOLUME_SEND_DEBOUNCE_MS = parseClampedInt(process.env.DJ_SALLY_HID_VOLUME_SEND_DEBOUNCE_MS, 150, 0, 2000)
+const HID_VOLUME_DIRECTION = process.env.DJ_SALLY_HID_VOLUME_INVERT === "1" ? -1 : 1
 const INPUT_EVENT_SIZE = 24
 const EV_KEY = 1
 const EV_REL = 2
@@ -94,6 +125,8 @@ interface DeviceState {
       rawPaths?: string[]
       eventPath: string
       eventPaths?: string[]
+      usbDevice?: string
+      mappingSource?: "sysfs" | "fallback"
       learnedCodes: number[]
       lastEvent: string | null
       lastHex: string | null
@@ -173,6 +206,8 @@ let deviceState: DeviceState = {
         rawPaths: HID_DECK_A_RAWS,
         eventPath: HID_DECK_A_KEYBOARDS[0] ?? HID_DECK_A_KEYBOARD,
         eventPaths: [...HID_DECK_A_KEYBOARDS, HID_DECK_A_ENCODER],
+        usbDevice: HID_DECK_A_AUTO?.usbDevice,
+        mappingSource: HID_AUTO_MAPPING.source,
         learnedCodes: [],
         lastEvent: null,
         lastHex: null,
@@ -187,6 +222,8 @@ let deviceState: DeviceState = {
         rawPaths: HID_DECK_B_RAWS,
         eventPath: HID_DECK_B_KEYBOARDS[0] ?? HID_DECK_B_KEYBOARD,
         eventPaths: [...HID_DECK_B_KEYBOARDS, HID_DECK_B_ENCODER],
+        usbDevice: HID_DECK_B_AUTO?.usbDevice,
+        mappingSource: HID_AUTO_MAPPING.source,
         learnedCodes: [],
         lastEvent: null,
         lastHex: null,
@@ -206,6 +243,7 @@ const clients = new Set<WebSocket>()
 const learnedButtonCodes = new Map<number, number[]>()
 const knobPressed = new Map<number, boolean>()
 const buttonPulseTimers = new Map<string, NodeJS.Timeout>()
+let hidVolumeSendTimer: NodeJS.Timeout | null = null
 let mubitUnavailableLogged = false
 
 interface InputEvent {
@@ -218,6 +256,15 @@ function startHidReaders() {
   if (!HID_ENABLED) {
     console.log("[HID] Disabled")
     return
+  }
+
+  if (HID_AUTO_MAPPING.source === "sysfs") {
+    console.log(
+      "[HID] Auto-mapped decks:",
+      HID_AUTO_MAPPING.decks.map((deck) => `${deck.label}=${deck.usbDevice}`).join(", ")
+    )
+  } else {
+    console.log(`[HID] Using fallback HID paths: ${HID_AUTO_MAPPING.reason ?? "auto mapping unavailable"}`)
   }
 
   for (const path of HID_DECK_A_KEYBOARDS) startKeyboardReader(1, path)
@@ -330,12 +377,7 @@ function handleProgrammedKeyControl(pad: number, event: InputEvent, path: string
       updateHidKnob(pad, `programmed knob click code=${event.code}`, true, path)
     } else if (control.direction) {
       const held = knobPressed.get(pad) === true
-      deck.encoder.value = clamp(
-        deck.encoder.value + (control.direction === "right" ? 1 : -1),
-        deck.encoder.min,
-        deck.encoder.max
-      )
-      updateHidKnob(pad, `programmed ${held ? "click+" : ""}rotate ${control.direction} code=${event.code}`, held, path)
+      applyKnobDelta(pad, control.direction === "right" ? 1 : -1, held, path, `programmed code=${event.code}`)
     }
     broadcastState()
     return true
@@ -389,14 +431,45 @@ function startEncoderReader(pad: number, path: string) {
 
     const held = knobPressed.get(pad) === true
     const direction = event.value > 0 ? "right" : "left"
-    deck.connected = true
-    deck.encoder.value = clamp(deck.encoder.value + event.value, deck.encoder.min, deck.encoder.max)
-    updateHidKnob(pad, `${held ? "click+" : ""}rotate ${direction} code=${event.code} delta=${event.value}`, held, path)
+    applyKnobDelta(pad, event.value, held, path, `code=${event.code} delta=${event.value}`)
     console.log(
       `[HID] Deck ${pad} ${held ? "click+" : ""}rotate ${direction} value=${deck.encoder.value} code=${event.code} delta=${event.value}`
     )
     broadcastState()
   })
+}
+
+function applyKnobDelta(pad: number, delta: number, held: boolean, source: string, detail: string) {
+  const deck = deviceState.macroPads[pad - 1]
+  if (!deck) return
+
+  const direction = delta > 0 ? "right" : "left"
+  deck.connected = true
+
+  if (HID_KNOB_TARGET === "volume") {
+    const nextVolume = clamp(deviceState.speaker.volume + delta * HID_VOLUME_DIRECTION * HID_VOLUME_STEP, 0, 100)
+    deviceState.speaker.volume = nextVolume
+    deviceState.speaker.muted = nextVolume <= 0
+    deviceState.speaker.connected = true
+    deck.encoder.value = nextVolume
+    if (nextVolume > 0) previousVolume = nextVolume
+    updateHidKnob(pad, `${held ? "click+" : ""}volume ${direction} ${detail} -> ${nextVolume}%`, held, source)
+    scheduleHidVolumeSend(nextVolume)
+    return
+  }
+
+  deck.encoder.value = clamp(deck.encoder.value + delta, deck.encoder.min, deck.encoder.max)
+  updateHidKnob(pad, `${held ? "click+" : ""}rotate ${direction} ${detail}`, held, source)
+}
+
+function scheduleHidVolumeSend(percent: number) {
+  if (hidVolumeSendTimer) clearTimeout(hidVolumeSendTimer)
+
+  hidVolumeSendTimer = setTimeout(() => {
+    hidVolumeSendTimer = null
+    void sendToSally({ type: "set_volume", percent })
+  }, HID_VOLUME_SEND_DEBOUNCE_MS)
+  hidVolumeSendTimer.unref()
 }
 
 function startInputReader(label: string, path: string, onEvent: (event: InputEvent) => void) {
@@ -525,6 +598,11 @@ function parsePathList(value: string | undefined, fallback: string[]) {
     .filter(Boolean)
 
   return paths?.length ? paths : fallback
+}
+
+function parseClampedInt(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = value === undefined ? fallback : parseInt(value, 10)
+  return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback
 }
 
 function clamp(value: number, min: number, max: number) {
